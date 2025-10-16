@@ -1,10 +1,13 @@
 package pkg
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+	"time"
+)
 
 type WindowItem[T any] struct {
 	Data       T
-	InsertedAt int64 // timestamp in unix nano
+	InsertedAt time.Time
 }
 
 type CreateWindOpts struct {
@@ -22,8 +25,8 @@ type Window[T any] struct {
 	ID        string
 	Items     []WindowItem[*T]
 	Len       atomic.Int32
-	StartedAt int64 // timestamp in unix nano
-	EndedAt   int64 // timestamp in unix nano
+	StartedAt time.Time
+	EndedAt   time.Time
 }
 
 type WindTrigger[T any, W any] func(wind *WindowManager[T, W]) error
@@ -31,8 +34,31 @@ type WindTrigger[T any, W any] func(wind *WindowManager[T, W]) error
 type CompressedWindow[T any] struct {
 	ID        string
 	Items     [][]byte
-	StartedAt int64 // timestamp in unix nano
-	EndedAt   int64 // timestamp in unix nano
+	StartedAt time.Time
+	EndedAt   time.Time
+}
+
+func (c *CompressedWindow[T]) GetItems() ([]WindowItem[*T], error) {
+	items := make([]WindowItem[*T], len(c.Items))
+	for _, item := range c.Items {
+		windItem, err := DecompressWind[T](item)
+		if err != nil {
+			return nil, err
+		}
+		if windItem.InsertedAt.IsZero() {
+			continue // skip empty items
+		}
+		items = append(items, windItem)
+	}
+	return items, nil
+}
+func (c *CompressedWindow[T]) AppendItem(item WindowItem[*T]) error {
+	compressedItem, err := CompressWind(item)
+	if err != nil {
+		return err
+	}
+	c.Items = append(c.Items, compressedItem)
+	return nil
 }
 
 type Manager[T any, W any] interface {
